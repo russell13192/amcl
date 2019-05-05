@@ -24,23 +24,26 @@
  * Date: 10 Dec 2002
  * CVS: $Id: pf.c 6345 2008-04-17 01:36:39Z gerkey $
  *************************************************************************/
+#define AMCL_USE_GPU  1
 
-#include <assert.h>
-#include <math.h>
-#include <stdlib.h>
-#include <time.h>
+#include <cassert>
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
 
 #include "amcl/pf/pf.h"
 #include "amcl/pf/pf_pdf.h"
 #include "amcl/pf/pf_kdtree.h"
-#include "portable_utils.hpp"
 
+#ifdef AMCL_USE_GPU
+#include "amcl/pf/pf_gpu.h"
+#endif // AMCL_USE_GPU
+
+#include "portable_utils.hpp"
 
 // Compute the required number of samples, given that there are k bins
 // with samples in them.
 static int pf_resample_limit(pf_t *pf, int k);
-
-
 
 // Create a new filter
 pf_t *pf_alloc(int min_samples, int max_samples,
@@ -51,10 +54,9 @@ pf_t *pf_alloc(int min_samples, int max_samples,
   pf_t *pf;
   pf_sample_set_t *set;
   pf_sample_t *sample;
-  
   srand48(time(NULL));
 
-  pf = calloc(1, sizeof(pf_t));
+  pf = (pf_t *)calloc(1, sizeof(pf_t));
 
   pf->random_pose_fn = random_pose_fn;
   pf->random_pose_data = random_pose_data;
@@ -69,16 +71,15 @@ pf_t *pf_alloc(int min_samples, int max_samples,
   // distrubition will be less than [err].
   pf->pop_err = 0.01;
   pf->pop_z = 3;
-  pf->dist_threshold = 0.5; 
-  
+  pf->dist_threshold = 0.5;
   pf->current_set = 0;
   for (j = 0; j < 2; j++)
   {
     set = pf->sets + j;
-      
     set->sample_count = max_samples;
-    set->samples = calloc(max_samples, sizeof(pf_sample_t));
+    set->samples = (pf_sample_t *)calloc(max_samples, sizeof(pf_sample_t));
 
+#ifndef AMCL_USE_GPU
     for (i = 0; i < set->sample_count; i++)
     {
       sample = set->samples + i;
@@ -87,13 +88,16 @@ pf_t *pf_alloc(int min_samples, int max_samples,
       sample->pose.v[2] = 0.0;
       sample->weight = 1.0 / max_samples;
     }
+#else
+    pf_gpu_alloc(set);
+#endif // AMCL_USE_GPU
 
     // HACK: is 3 times max_samples enough?
     set->kdtree = pf_kdtree_alloc(3 * max_samples);
 
     set->cluster_count = 0;
     set->cluster_max_count = max_samples;
-    set->clusters = calloc(set->cluster_max_count, sizeof(pf_cluster_t));
+    set->clusters = (pf_cluster_t *)calloc(set->cluster_max_count, sizeof(pf_cluster_t));
 
     set->mean = pf_vector_zero();
     set->cov = pf_matrix_zero();
@@ -115,7 +119,6 @@ pf_t *pf_alloc(int min_samples, int max_samples,
 void pf_free(pf_t *pf)
 {
   int i;
-  
   for (i = 0; i < 2; i++)
   {
     free(pf->sets[i].clusters);
@@ -123,7 +126,7 @@ void pf_free(pf_t *pf)
     free(pf->sets[i].samples);
   }
   free(pf);
-  
+
   return;
 }
 
@@ -134,7 +137,7 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
   pf_sample_set_t *set;
   pf_sample_t *sample;
   pf_pdf_gaussian_t *pdf;
-  
+
   set = pf->sets + pf->current_set;
   
   // Create the kd tree for adaptive sampling
@@ -143,7 +146,7 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
   set->sample_count = pf->max_samples;
 
   pdf = pf_pdf_gaussian_alloc(mean, cov);
-    
+
   // Compute the new sample poses
   for (i = 0; i < set->sample_count; i++)
   {
@@ -321,7 +324,6 @@ void pf_update_resample(pf_t *pf)
   //int m;
   //double count_inv;
   double* c;
-
   double w_diff;
 
   set_a = pf->sets + pf->current_set;
@@ -357,6 +359,8 @@ void pf_update_resample(pf_t *pf)
   i = 0;
   m = 0;
   */
+
+#ifndef AMCL_USE_GPU
   while(set_b->sample_count < pf->max_samples)
   {
     sample_b = set_b->samples + set_b->sample_count++;
@@ -417,7 +421,10 @@ void pf_update_resample(pf_t *pf)
     if (set_b->sample_count > pf_resample_limit(pf, set_b->kdtree->leaf_count))
       break;
   }
-  
+#else
+  pf_gpu_update_resample(set_a, set_b, pf, w_diff, c, &total, pf->random_pose_data);
+#endif // AMCL_USE_GPU
+
   // Reset averages, to avoid spiraling off into complete randomness.
   if(w_diff > 0.0)
     pf->w_slow = pf->w_fast = 0.0;
@@ -430,7 +437,7 @@ void pf_update_resample(pf_t *pf)
     sample_b = set_b->samples + i;
     sample_b->weight /= total;
   }
-  
+
   // Re-compute cluster statistics
   pf_cluster_stats(pf, set_b);
 
@@ -513,7 +520,7 @@ void pf_cluster_stats(pf_t *pf, pf_sample_set_t *set)
   for (j = 0; j < 2; j++)
     for (k = 0; k < 2; k++)
       c[j][k] = 0.0;
-  
+
   // Compute cluster stats
   for (i = 0; i < set->sample_count; i++)
   {
@@ -657,5 +664,4 @@ int pf_get_cluster_stats(pf_t *pf, int clabel, double *weight,
 
   return 1;
 }
-
 
