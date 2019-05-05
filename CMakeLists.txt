@@ -37,6 +37,9 @@ find_package(catkin REQUIRED
 
 find_package(Boost REQUIRED)
 
+# CUDA PACKAGE
+find_package(CUDA REQUIRED)
+
 # dynamic reconfigure
 generate_dynamic_reconfigure_options(
     cfg/AMCL.cfg
@@ -73,13 +76,22 @@ if (HAVE_DRAND48)
   add_definitions(-DHAVE_DRAND48)
 endif (HAVE_DRAND48)
 
-add_library(amcl_pf
-                    src/amcl/pf/pf.c
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-Xcompiler -std=c++11")
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-gencode arch=compute_61,code=sm_61")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-G;-g;-lineinfo;--ptxas-options=-v")
+else()
+  set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-O3;-g;-lineinfo;--ptxas-options=-v")
+endif()
+
+cuda_add_library(amcl_pf
+                    src/amcl/pf/pf.cpp
                     src/amcl/pf/pf_kdtree.c
                     src/amcl/pf/pf_pdf.c
                     src/amcl/pf/pf_vector.c
                     src/amcl/pf/eig3.c
-                    src/amcl/pf/pf_draw.c)
+                    src/amcl/pf/pf_draw.c
+                    src/amcl/pf/pf_gpu.cu)
 
 add_library(amcl_map
                     src/amcl/map/map.c
