@@ -36,7 +36,7 @@
 #include "amcl/pf/pf_kdtree.h"
 
 #ifdef AMCL_USE_GPU
-#include "amcl/pf/pf_gpu.h"
+#include "amcl/pf/pf_gpu.cuh"
 #endif // AMCL_USE_GPU
 
 #include "portable_utils.hpp"

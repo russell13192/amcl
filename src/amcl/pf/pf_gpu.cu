@@ -5,7 +5,7 @@
 #include <curand_kernel.h>
 
 #include "amcl/pf/pf.h"
-#include "amcl/pf/pf_gpu.h"
+#include "amcl/pf/pf_gpu.cuh"
 #include "amcl/map/map.h"
 
 #define CUDA_SAFE_CALL(call)                            \
