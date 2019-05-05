@@ -26,16 +26,18 @@
 // CVS: $Id: amcl_laser.cc 7057 2008-10-02 00:44:06Z gbiggs $
 //
 ///////////////////////////////////////////////////////////////////////////
+#define AMCL_USE_GPU 1
 
 #include <sys/types.h> // required by Darwin
-#include <math.h>
-#include <stdlib.h>
-#include <assert.h>
+#include <cmath>
+#include <cstdlib>
+#include <cassert>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 
 #include "amcl/sensors/amcl_laser.h"
+#include "amcl/sensors/amcl_gpu.cuh"
 
 using namespace amcl;
 
@@ -220,6 +222,7 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
   double p;
   double obs_range, obs_bearing;
   double total_weight;
+
   pf_sample_t *sample;
   pf_vector_t pose;
   pf_vector_t hit;
@@ -229,6 +232,7 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
   total_weight = 0.0;
 
   // Compute the sample weights
+#ifndef AMCL_USE_GPU
   for (j = 0; j < set->sample_count; j++)
   {
     sample = set->samples + j;
@@ -241,8 +245,7 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
 
     // Pre-compute a couple of things
     double z_hit_denom = 2 * self->sigma_hit * self->sigma_hit;
-    double z_rand_mult = 1.0/data->range_max;
-
+    double z_rand_mult = 1.0 / data->range_max;
     step = (data->range_count - 1) / (self->max_beams - 1);
 
     // Step size must be at least 1
@@ -276,9 +279,14 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
       // Part 1: Get distance from the hit to closest obstacle.
       // Off-map penalized as max distance
       if(!MAP_VALID(self->map, mi, mj))
+      {
         z = self->map->max_occ_dist;
+      }
       else
+      {
         z = self->map->cells[MAP_INDEX(self->map,mi,mj)].occ_dist;
+      }
+
       // Gaussian model
       // NOTE: this should have a normalization of 1/(sqrt(2pi)*sigma)
       pz += self->z_hit * exp(-(z * z) / z_hit_denom);
@@ -298,6 +306,9 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
     sample->weight *= p;
     total_weight += sample->weight;
   }
+#else
+  sensor_gpu_LikelihoodFieldModel(set, self, data, &total_weight);
+#endif // AMCL_USE_GPU
 
   return(total_weight);
 }

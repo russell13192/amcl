@@ -100,10 +100,11 @@ add_library(amcl_map
                     src/amcl/map/map_store.c
                     src/amcl/map/map_draw.c)
 
-add_library(amcl_sensors
+cuda_add_library(amcl_sensors
                     src/amcl/sensors/amcl_sensor.cpp
                     src/amcl/sensors/amcl_odom.cpp
-                    src/amcl/sensors/amcl_laser.cpp)
+                    src/amcl/sensors/amcl_laser.cpp
+                    src/amcl/sensors/amcl_gpu.cu)
 target_link_libraries(amcl_sensors amcl_map amcl_pf)
 
 
