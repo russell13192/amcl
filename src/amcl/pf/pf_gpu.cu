@@ -18,7 +18,21 @@
             cudaGetErrorString(error));                 \
         exit(1);                                        \
     }                                                   \
-} 
+}
+
+__device__ double atomicAdd_double(double* address, double val)
+{
+    unsigned long long int* address_as_ull =(unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull, assumed;
+
+    do {
+        assumed = old;
+        old = atomicCAS(address_as_ull, assumed,
+                        __double_as_longlong(val + __longlong_as_double(assumed)));
+    } while (assumed != old);
+
+    return __longlong_as_double(old);
+}
 
 __global__
 void dev_pf_gpu_alloc(pf_sample_t samples[], int max_count)
@@ -121,7 +135,7 @@ void dev_pf_gpu_update_resample(pf_sample_t samples_a[], pf_sample_t samples_b[]
     samples_b[i].weight = 1.0;
 
     __syncthreads(); 
-    atomicAdd(dev_total, (double)samples_b[i].weight); 
+    atomicAdd_double(dev_total, samples_b[i].weight); 
   }
 }
 
